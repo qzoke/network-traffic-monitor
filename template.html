@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Network Traffic Monitor</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script
+        src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -16,10 +18,13 @@
             padding: 20px;
             background-color: #1e2a3a;
         }
-        h1, h2 {
+
+        h1,
+        h2 {
             color: #3498db;
             text-align: center;
         }
+
         button {
             background-color: #3498db;
             color: white;
@@ -33,10 +38,13 @@
             cursor: pointer;
             border-radius: 4px;
         }
+
         button:hover {
             background-color: #2980b9;
         }
-        #currentUsage, #summary {
+
+        #currentUsage,
+        #summary {
             background-color: #2c3e50;
             border-radius: 4px;
             padding: 10px;
@@ -44,31 +52,67 @@
             text-align: center;
             font-size: 18px;
         }
+
         #chartContainer {
             margin-top: 20px;
             background-color: #2c3e50;
             padding: 20px;
             border-radius: 4px;
         }
+
         table {
             border-collapse: collapse;
             width: 100%;
             margin-top: 20px;
             background-color: #2c3e50;
         }
-        th, td {
+
+        th,
+        td {
             border: 1px solid #34495e;
             padding: 12px;
             text-align: left;
         }
+
         th {
             background-color: #34495e;
         }
+
         tr:nth-child(even) {
             background-color: #2c3e50;
         }
+
+        .app-usage {
+            margin-bottom: 10px;
+        }
+
+        .app-name {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .app-total {
+            font-weight: bold;
+        }
+
+        .usage-bar {
+            height: 10px;
+            background-color: #ddd;
+            display: flex;
+        }
+
+        .upload-bar {
+            background-color: yellow;
+            height: 100%;
+        }
+
+        .download-bar {
+            background-color: red;
+            height: 100%;
+        }
     </style>
 </head>
+
 <body>
     <h1>Network Traffic Monitor</h1>
     <button onclick="updateUsage()">Update Network Usage</button>
@@ -83,6 +127,12 @@
     <div id="summary">
         Total Sent: <span id="totalSent">0 B</span>, Total Received: <span id="totalReceived">0 B</span>
     </div>
+
+    <div id="appUsage">
+        <h2>App Data Usage</h2>
+        <div id="appUsageList"></div>
+    </div>
+
     <table id="usageTable">
         <tr>
             <th>Date</th>
@@ -136,7 +186,7 @@
                                 text: 'Download Speed'
                             },
                             ticks: {
-                                callback: function(value, index, values) {
+                                callback: function (value, index, values) {
                                     return humanFileSize(value * 1024, true) + '/s';
                                 }
                             }
@@ -150,7 +200,7 @@
                                 text: 'Upload Speed'
                             },
                             ticks: {
-                                callback: function(value, index, values) {
+                                callback: function (value, index, values) {
                                     return humanFileSize(value * 1024, true) + '/s';
                                 }
                             },
@@ -171,22 +221,22 @@
                     const time = new Date();
                     const downloadSpeed = data.downloadSpeed / 1024; // Convert to KB/s
                     const uploadSpeed = data.uploadSpeed / 1024; // Convert to KB/s
-                    
+
                     if (downloadData.length > 60) {
                         downloadData.shift();
                         uploadData.shift();
                     }
-                    
+
                     // Use the last known value if the new value is 0 to prevent flickering
-                    downloadData.push({x: time, y: downloadSpeed || lastDownloadSpeed});
-                    uploadData.push({x: time, y: uploadSpeed || lastUploadSpeed});
-                    
+                    downloadData.push({ x: time, y: downloadSpeed || lastDownloadSpeed });
+                    uploadData.push({ x: time, y: uploadSpeed || lastUploadSpeed });
+
                     // Update last known values
                     if (downloadSpeed > 0) lastDownloadSpeed = downloadSpeed;
                     if (uploadSpeed > 0) lastUploadSpeed = uploadSpeed;
 
                     chart.update();
-                    
+
                     document.getElementById('currentSent').textContent = data.sent;
                     document.getElementById('currentReceived').textContent = data.received;
                     document.getElementById('downloadSpeed').textContent = humanFileSize(data.downloadSpeed, true) + '/s';
@@ -231,19 +281,46 @@
                 });
         }
 
+        function updateAppUsage() {
+            fetch('/app-usage')
+                .then(response => response.json())
+                .then(data => {
+                    const appUsageList = document.getElementById('appUsageList');
+                    appUsageList.innerHTML = '';
+                    data.forEach(app => {
+                        const appDiv = document.createElement('div');
+                        appDiv.className = 'app-usage';
+                        const totalUsage = humanFileSize(app.totalUsage);
+                        const uploadPercentage = (app.upload / app.totalUsage) * 100;
+                        const downloadPercentage = (app.download / app.totalUsage) * 100;
+
+                        appDiv.innerHTML = `
+                    <div class="app-name">${app.name} <span class="app-total">${totalUsage}</span></div>
+                    <div class="usage-bar">
+                        <div class="upload-bar" style="width: ${uploadPercentage}%"></div>
+                        <div class="download-bar" style="width: ${downloadPercentage}%"></div>
+                    </div>
+                `;
+                        appUsageList.appendChild(appDiv);
+                    });
+                });
+        }
+
+
+
         // Convert bytes to human-readable format (KB, MB, GB)
-        function humanFileSize(bytes, si=true, dp=1) {
+        function humanFileSize(bytes, si = true, dp = 1) {
             const thresh = si ? 1000 : 1024;
 
             if (Math.abs(bytes) < thresh) {
                 return bytes.toFixed(dp) + ' B';
             }
 
-            const units = si 
-                ? ['kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'] 
+            const units = si
+                ? ['kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
                 : ['KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB', 'ZiB', 'YiB'];
             let u = -1;
-            const r = 10**dp;
+            const r = 10 ** dp;
 
             do {
                 bytes /= thresh;
@@ -257,9 +334,12 @@
         initChart();
         updateTable();
         updateSummary();
+        updateAppUsage();
         setInterval(updateChart, 1000); // Update chart and current usage every second
         setInterval(updateTable, 60000); // Update table every minute
         setInterval(updateSummary, 60000); // Update summary every minute
+        setInterval(updateAppUsage, 60000); // Update every minute
     </script>
 </body>
+
 </html>

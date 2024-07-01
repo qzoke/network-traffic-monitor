@@ -7,10 +7,12 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"time"
 
 	"github.com/dustin/go-humanize"
 	"github.com/shirou/gopsutil/net"
+	"github.com/shirou/gopsutil/process"
 	_ "modernc.org/sqlite"
 )
 
@@ -21,6 +23,13 @@ type DataUsage struct {
 	Received      uint64 `json:"received"`
 	SentHuman     string `json:"sentHuman"`
 	ReceivedHuman string `json:"receivedHuman"`
+}
+
+type AppUsage struct {
+	Name       string `json:"name"`
+	Upload     int64  `json:"upload"`
+	Download   int64  `json:"download"`
+	TotalUsage int64  `json:"totalUsage"`
 }
 
 var db *sql.DB
@@ -50,6 +59,7 @@ func main() {
 	http.HandleFunc("/update", handleUpdate)
 	http.HandleFunc("/current", handleCurrent)
 	http.HandleFunc("/summary", handleSummary)
+	http.HandleFunc("/app-usage", handleAppUsage)
 
 	fmt.Println("Server is running on http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
@@ -143,6 +153,63 @@ func getDataUsage() []DataUsage {
 	}
 
 	return usages
+}
+
+func getAppUsage() []AppUsage {
+	processes, err := process.Processes()
+	if err != nil {
+		log.Printf("Error getting processes: %v", err)
+		return nil
+	}
+
+	appUsageMap := make(map[string]*AppUsage)
+
+	for _, p := range processes {
+		name, err := p.Name()
+		if err != nil {
+			continue
+		}
+
+		ioCounters, err := p.IOCounters()
+		if err != nil {
+			continue
+		}
+
+		if appUsage, exists := appUsageMap[name]; exists {
+			appUsage.Upload += int64(ioCounters.WriteBytes)
+			appUsage.Download += int64(ioCounters.ReadBytes)
+			appUsage.TotalUsage = appUsage.Upload + appUsage.Download
+		} else {
+			appUsageMap[name] = &AppUsage{
+				Name:       name,
+				Upload:     int64(ioCounters.WriteBytes),
+				Download:   int64(ioCounters.ReadBytes),
+				TotalUsage: int64(ioCounters.ReadBytes + ioCounters.WriteBytes),
+			}
+		}
+	}
+
+	// Convert map to slice
+	var allApps []AppUsage
+	for _, usage := range appUsageMap {
+		allApps = append(allApps, *usage)
+	}
+
+	// Sort by total usage (descending)
+	sort.Slice(allApps, func(i, j int) bool {
+		return allApps[i].TotalUsage > allApps[j].TotalUsage
+	})
+
+	// Return top 10 or all if less than 10
+	if len(allApps) > 10 {
+		return allApps[:10]
+	}
+	return allApps
+}
+
+// Add a new handler for app usage
+func handleAppUsage(w http.ResponseWriter, r *http.Request) {
+	json.NewEncoder(w).Encode(getAppUsage())
 }
 
 // handleHome serves the main HTML page of the application.
