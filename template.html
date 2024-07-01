@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Traffic Monitor</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #ffffff;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #1e2a3a;
+        }
+        h1, h2 {
+            color: #3498db;
+            text-align: center;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        #currentUsage, #summary {
+            background-color: #2c3e50;
+            border-radius: 4px;
+            padding: 10px;
+            margin-top: 20px;
+            text-align: center;
+            font-size: 18px;
+        }
+        #chartContainer {
+            margin-top: 20px;
+            background-color: #2c3e50;
+            padding: 20px;
+            border-radius: 4px;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 20px;
+            background-color: #2c3e50;
+        }
+        th, td {
+            border: 1px solid #34495e;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #34495e;
+        }
+        tr:nth-child(even) {
+            background-color: #2c3e50;
+        }
+    </style>
+</head>
+<body>
+    <h1>Network Traffic Monitor</h1>
+    <button onclick="updateUsage()">Update Network Usage</button>
+    <div id="currentUsage">
+        Current Usage - Sent: <span id="currentSent">0 B</span>, Received: <span id="currentReceived">0 B</span><br>
+        Download Speed: <span id="downloadSpeed">0 KB/s</span>, Upload Speed: <span id="uploadSpeed">0 KB/s</span>
+    </div>
+    <div id="chartContainer">
+        <canvas id="networkChart"></canvas>
+    </div>
+    <h2>30-Day Summary</h2>
+    <div id="summary">
+        Total Sent: <span id="totalSent">0 B</span>, Total Received: <span id="totalReceived">0 B</span>
+    </div>
+    <table id="usageTable">
+        <tr>
+            <th>Date</th>
+            <th>Sent</th>
+            <th>Received</th>
+        </tr>
+    </table>
+
+    <script>
+        let chart;
+        const downloadData = [];
+        const uploadData = [];
+        let lastDownloadSpeed = 0;
+        let lastUploadSpeed = 0;
+
+        // Initialize the chart with separate y-axes for download and upload speeds
+        function initChart() {
+            const ctx = document.getElementById('networkChart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    datasets: [{
+                        label: 'Download Speed',
+                        borderColor: '#3498db',
+                        data: downloadData,
+                        fill: false,
+                        yAxisID: 'y-download',
+                    }, {
+                        label: 'Upload Speed',
+                        borderColor: '#e67e22',
+                        data: uploadData,
+                        fill: false,
+                        yAxisID: 'y-upload',
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: 'second'
+                            }
+                        },
+                        'y-download': {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            title: {
+                                display: true,
+                                text: 'Download Speed'
+                            },
+                            ticks: {
+                                callback: function(value, index, values) {
+                                    return humanFileSize(value * 1024, true) + '/s';
+                                }
+                            }
+                        },
+                        'y-upload': {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            title: {
+                                display: true,
+                                text: 'Upload Speed'
+                            },
+                            ticks: {
+                                callback: function(value, index, values) {
+                                    return humanFileSize(value * 1024, true) + '/s';
+                                }
+                            },
+                            grid: {
+                                drawOnChartArea: false,
+                            },
+                        }
+                    }
+                }
+            });
+        }
+
+        // Update the chart with new data
+        function updateChart() {
+            fetch('/current')
+                .then(response => response.json())
+                .then(data => {
+                    const time = new Date();
+                    const downloadSpeed = data.downloadSpeed / 1024; // Convert to KB/s
+                    const uploadSpeed = data.uploadSpeed / 1024; // Convert to KB/s
+                    
+                    if (downloadData.length > 60) {
+                        downloadData.shift();
+                        uploadData.shift();
+                    }
+                    
+                    // Use the last known value if the new value is 0 to prevent flickering
+                    downloadData.push({x: time, y: downloadSpeed || lastDownloadSpeed});
+                    uploadData.push({x: time, y: uploadSpeed || lastUploadSpeed});
+                    
+                    // Update last known values
+                    if (downloadSpeed > 0) lastDownloadSpeed = downloadSpeed;
+                    if (uploadSpeed > 0) lastUploadSpeed = uploadSpeed;
+
+                    chart.update();
+                    
+                    document.getElementById('currentSent').textContent = data.sent;
+                    document.getElementById('currentReceived').textContent = data.received;
+                    document.getElementById('downloadSpeed').textContent = humanFileSize(data.downloadSpeed, true) + '/s';
+                    document.getElementById('uploadSpeed').textContent = humanFileSize(data.uploadSpeed, true) + '/s';
+                });
+        }
+
+        // Update the table with historical data
+        function updateTable() {
+            fetch('/data')
+                .then(response => response.json())
+                .then(data => {
+                    const table = document.getElementById('usageTable');
+                    table.innerHTML = '<tr><th>Date</th><th>Sent</th><th>Received</th></tr>';
+                    data.forEach(item => {
+                        const row = table.insertRow();
+                        row.insertCell(0).textContent = item.date;
+                        row.insertCell(1).textContent = item.sentHuman;
+                        row.insertCell(2).textContent = item.receivedHuman;
+                    });
+                });
+        }
+
+        // Update the 30-day summary
+        function updateSummary() {
+            fetch('/summary')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('totalSent').textContent = data.totalSent;
+                    document.getElementById('totalReceived').textContent = data.totalReceived;
+                });
+        }
+
+        // Manually update usage data
+        function updateUsage() {
+            fetch('/update')
+                .then(response => response.text())
+                .then(message => {
+                    alert(message);
+                    updateTable();
+                    updateSummary();
+                });
+        }
+
+        // Convert bytes to human-readable format (KB, MB, GB)
+        function humanFileSize(bytes, si=true, dp=1) {
+            const thresh = si ? 1000 : 1024;
+
+            if (Math.abs(bytes) < thresh) {
+                return bytes.toFixed(dp) + ' B';
+            }
+
+            const units = si 
+                ? ['kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'] 
+                : ['KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB', 'ZiB', 'YiB'];
+            let u = -1;
+            const r = 10**dp;
+
+            do {
+                bytes /= thresh;
+                ++u;
+            } while (Math.round(Math.abs(bytes) * r) / r >= thresh && u < units.length - 1);
+
+            return bytes.toFixed(dp) + ' ' + units[u];
+        }
+
+        // Initialize the monitoring system
+        initChart();
+        updateTable();
+        updateSummary();
+        setInterval(updateChart, 1000); // Update chart and current usage every second
+        setInterval(updateTable, 60000); // Update table every minute
+        setInterval(updateSummary, 60000); // Update summary every minute
+    </script>
+</body>
+</html>

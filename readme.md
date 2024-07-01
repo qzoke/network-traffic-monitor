@@ -1,8 +1,8 @@
 ## version: 
-2.0
+3.0
 
 ## Description:
-Network Traffic Monitor is a program built to show current network activity as well as past network usage.
+Network Traffic Monitor is a real-time web app that tracks and visualizes your internet usage. It displays current download/upload speeds, historical data, and a 30-day summary. With live graphs and easy-to-read stats, it helps users understand their network consumption patterns and monitor bandwidth usage efficiently
 
 
 ## Platforms:
@@ -23,11 +23,13 @@ Steps to create network monitor :
 
 ## screenshot:
 
-![screenshot](image-1.png)
-
+![screenshot](image.png)
 
 ## TODO
-1. Graphs for upload
-2. Monthly , daily, hourly data tables. 
-3. Accurate network usage data.
-4. Program should Always run in background. 
+1. Monthly , daily, hourly data tables. 
+2. Accurate network usage data.
+3. Program should Always run in background. 
+4. make Graphs beautiful
+5. App based data usage categorization
+6. Hosts based data categorization
+7. Traffic type  data categorization
