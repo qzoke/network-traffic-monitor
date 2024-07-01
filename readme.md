@@ -23,7 +23,8 @@ Steps to create network monitor :
 
 ## screenshot:
 
-![screenshot](image.png)
+![screenshot](image-1.png)
+
 
 ## TODO
 1. Monthly , daily, hourly data tables. 
