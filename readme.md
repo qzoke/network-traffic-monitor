@@ -1,5 +1,5 @@
 ## version: 
-1.0
+2.0
 
 ## Description:
 Network Traffic Monitor is a program built to show current network activity as well as past network usage.
@@ -23,12 +23,11 @@ Steps to create network monitor :
 
 ## screenshot:
 
-![alt text](image.png)
-
+![screenshot](image-1.png)
 
 
 ## TODO
-1. Graphs for upload and Download
+1. Graphs for upload
 2. Monthly , daily, hourly data tables. 
 3. Accurate network usage data.
 4. Program should Always run in background. 

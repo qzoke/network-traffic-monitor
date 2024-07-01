@@ -22,6 +22,8 @@ type DataUsage struct {
 }
 
 var db *sql.DB
+var lastSent, lastReceived uint64
+var lastCheckTime time.Time
 
 func main() {
 	var err error
@@ -32,6 +34,9 @@ func main() {
 	defer db.Close()
 
 	createTable()
+
+	lastSent, lastReceived, _, _ = getNetworkUsage()
+	lastCheckTime = time.Now()
 
 	http.HandleFunc("/", handleHome)
 	http.HandleFunc("/data", handleData)
@@ -56,7 +61,7 @@ func createTable() {
 	}
 }
 
-func getNetworkUsage() (uint64, uint64) {
+func getNetworkUsage() (uint64, uint64, float64, float64) {
 	stats, err := net.IOCounters(false)
 	if err != nil {
 		log.Fatal(err)
@@ -68,7 +73,18 @@ func getNetworkUsage() (uint64, uint64) {
 		received += stat.BytesRecv
 	}
 
-	return sent, received
+	now := time.Now()
+	duration := now.Sub(lastCheckTime).Seconds()
+	var downloadSpeed, uploadSpeed float64
+	if duration > 0 {
+		downloadSpeed = float64(received-lastReceived) / duration
+		uploadSpeed = float64(sent-lastSent) / duration
+	}
+
+	lastSent, lastReceived = sent, received
+	lastCheckTime = now
+
+	return sent, received, downloadSpeed, uploadSpeed
 }
 
 func saveDataUsage(sent, received uint64) {
@@ -122,16 +138,18 @@ func handleData(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleUpdate(w http.ResponseWriter, r *http.Request) {
-	sent, received := getNetworkUsage()
+	sent, received, _, _ := getNetworkUsage()
 	saveDataUsage(sent, received)
 	fmt.Fprintf(w, "Network usage updated successfully!")
 }
 
 func handleCurrent(w http.ResponseWriter, r *http.Request) {
-	sent, received := getNetworkUsage()
-	json.NewEncoder(w).Encode(map[string]string{
-		"sent":     humanize.Bytes(sent),
-		"received": humanize.Bytes(received),
+	sent, received, downloadSpeed, uploadSpeed := getNetworkUsage()
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"sent":          humanize.Bytes(sent),
+		"received":      humanize.Bytes(received),
+		"downloadSpeed": humanize.Bytes(uint64(downloadSpeed)) + "/s",
+		"uploadSpeed":   humanize.Bytes(uint64(uploadSpeed)) + "/s",
 	})
 }
 
@@ -142,18 +160,19 @@ const htmlContent = `
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Network Traffic Monitor</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
             line-height: 1.6;
-            color: #333;
+            color: #ffffff;
             max-width: 800px;
             margin: 0 auto;
             padding: 20px;
-            background-color: #f4f4f4;
+            background-color: #1e2a3a;
         }
         h1 {
-            color: #2c3e50;
+            color: #3498db;
             text-align: center;
         }
         button {
@@ -172,32 +191,36 @@ const htmlContent = `
         button:hover {
             background-color: #2980b9;
         }
-        table {
-            border-collapse: collapse;
-            width: 100%;
-            margin-top: 20px;
-            background-color: white;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-        }
-        th, td {
-            border: 1px solid #ddd;
-            padding: 12px;
-            text-align: left;
-        }
-        th {
-            background-color: #3498db;
-            color: white;
-        }
-        tr:nth-child(even) {
-            background-color: #f2f2f2;
-        }
         #currentUsage {
-            background-color: #ecf0f1;
+            background-color: #2c3e50;
             border-radius: 4px;
             padding: 10px;
             margin-top: 20px;
             text-align: center;
             font-size: 18px;
+        }
+        #chartContainer {
+            margin-top: 20px;
+            background-color: #2c3e50;
+            padding: 20px;
+            border-radius: 4px;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 20px;
+            background-color: #2c3e50;
+        }
+        th, td {
+            border: 1px solid #34495e;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #34495e;
+        }
+        tr:nth-child(even) {
+            background-color: #2c3e50;
         }
     </style>
 </head>
@@ -205,7 +228,11 @@ const htmlContent = `
     <h1>Network Traffic Monitor</h1>
     <button onclick="updateUsage()">Update Network Usage</button>
     <div id="currentUsage">
-        Current Usage - Sent: <span id="currentSent">0 B</span>, Received: <span id="currentReceived">0 B</span>
+        Current Usage - Sent: <span id="currentSent">0 B</span>, Received: <span id="currentReceived">0 B</span><br>
+        Download Speed: <span id="downloadSpeed">0 B/s</span>, Upload Speed: <span id="uploadSpeed">0 B/s</span>
+    </div>
+    <div id="chartContainer">
+        <canvas id="networkChart"></canvas>
     </div>
     <table id="usageTable">
         <tr>
@@ -216,6 +243,60 @@ const htmlContent = `
     </table>
 
     <script>
+        let chart;
+        const dataPoints = [];
+
+        function initChart() {
+            const ctx = document.getElementById('networkChart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Download Speed',
+                        borderColor: '#3498db',
+                        data: [],
+                        fill: false
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Speed (B/s)'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateChart() {
+            fetch('/current')
+                .then(response => response.json())
+                .then(data => {
+                    const downloadSpeed = parseFloat(data.downloadSpeed.replace(/[^0-9.]/g, ''));
+                    const time = new Date().toLocaleTimeString();
+                    
+                    if (chart.data.labels.length > 20) {
+                        chart.data.labels.shift();
+                        chart.data.datasets[0].data.shift();
+                    }
+                    
+                    chart.data.labels.push(time);
+                    chart.data.datasets[0].data.push(downloadSpeed);
+                    chart.update();
+                    
+                    document.getElementById('currentSent').textContent = data.sent;
+                    document.getElementById('currentReceived').textContent = data.received;
+                    document.getElementById('downloadSpeed').textContent = data.downloadSpeed;
+                    document.getElementById('uploadSpeed').textContent = data.uploadSpeed;
+                });
+        }
+
         function updateTable() {
             fetch('/data')
                 .then(response => response.json())
@@ -240,18 +321,10 @@ const htmlContent = `
                 });
         }
 
-        function updateCurrentUsage() {
-            fetch('/current')
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('currentSent').textContent = data.sent;
-                    document.getElementById('currentReceived').textContent = data.received;
-                });
-        }
-
+        initChart();
         updateTable();
-        updateCurrentUsage();
-        setInterval(updateCurrentUsage, 5000); // Update every 5 seconds
+        setInterval(updateChart, 1000); // Update chart and current usage every second
+        setInterval(updateTable, 60000); // Update table every minute
     </script>
 </body>
 </html>
